@@ -10,16 +10,22 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import re
+import ctypes
 
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except:
+    pass
 
 root = tk.Tk()
 root.withdraw()
+root.attributes('-topmost', True)
 root.update()
 csv_path = filedialog.askopenfilename(title = "Select CSV file", filetypes=[('CSV files', '*.csv'), ('All files', '*.*')])
 if not csv_path:
     sys.exit()
 
-df = pd.read_csv(csv_path)
+df = pd.read_csv(csv_path, encoding='utf-8-sig')
 
 cols = ['Subject', 'Start Date', 'Start Time', 'End Time', 'Description', 'Location']
 df = df[cols]
@@ -39,8 +45,8 @@ df = df[mask]
 
 #df['Description'] = df['Description'].str.replace('\r\n', ' ').str.strip()
 df['Description'] = df['Description'].str.strip()
-zoom_strings = ['urldefense', 'zoom.com', 'zoom.us']
-pattern = '|'.join(zoom_strings)
+avoid_strings = ['urldefense', 'zoom.com', 'zoom.us', 'teams.microsoft.com']
+pattern = '|'.join(avoid_strings)
 df['Description'] = df['Description'].mask(
     df['Description'].str.contains(pattern, case=False, na=False), ''
 )
@@ -60,44 +66,6 @@ req_fields = [
     'Notes'
 ]
 
-"""
-def reformat_description(row):
-    desc = row['Description']
-    start_dt = row['start_dt']
-    end_dt = row['end_dt']
-    
-    if not desc or not isinstance(desc, str):
-        extracted = {}
-    else:
-        extracted = {}
-        
-        # get field:value pairs
-        for line in desc.split('\n'):
-            line = line.strip()
-            if ':' in line:
-                # split on the :
-                parts = line.split(':', 1)
-                field_name = parts[0].strip()
-                field_value = parts[1].strip() if len(parts) > 1 else ''
-                
-                # force match req_fields
-                for req_field in req_fields:
-                    if field_name.lower().strip() == req_field.lower().strip() or req_field.lower() in field_name.lower():
-                        extracted[req_field] = field_value
-                        break
-    
-    # get correct date and time format
-    extracted['Date'] = start_dt.strftime('%m/%d/%Y')
-    extracted['Time'] = start_dt.strftime('%I:%M') + start_dt.strftime('%p') + '-' + end_dt.strftime('%I:%M') + end_dt.strftime('%p')
-
-    result = []
-    for field in req_fields:
-        value = extracted.get(field, '')
-        if value:
-            result.append(f"{field}: {value}")
-    
-    return '\n'.join(result)
-"""
 
 def reformat_description(row):
     """Extract values and rebuild with required fields template"""
@@ -106,43 +74,60 @@ def reformat_description(row):
         start_dt = row['start_dt']
         end_dt = row['end_dt']
         
-        # If description is empty (zoom event), return empty
         if not desc or not isinstance(desc, str) or desc.strip() == '':
             return ''
         
-        # Extract all values (right of colon) in order
-        values = []
-        for line in desc.split('\n'):
-            line = line.strip()
-            if ':' in line:
-                parts = line.split(':', 1)
-                field_value = parts[1].strip() if len(parts) > 1 else ''
-                values.append(field_value)
+        print(f"debug: raw description:\n{repr(desc)}\n")  # script use only
+
+        # Replace weird spaces
+        desc = desc.replace('\xa0', ' ')
         
-        print(f"Values extracted: {values}")  # ADD THIS
-        
-        # Assign values to required fields in order
+        # Extract values only from lines that start with a known field
         extracted = {}
-        for i, field in enumerate(req_fields):
-            if i < len(values):
-                extracted[field] = values[i]
-            else:
-                extracted[field] = ''
+        current_field = None
+        current_value = ''
+        
+        for line in desc.split('\n'):
+            print(f"debug: processing line: {repr(line)}") # script use only
+            # Check if line starts with a known field
+            field_found = False
+            for req_field in req_fields:
+                if line.strip().lower().replace(' ', '').startswith((req_field.lower() + ':').replace(' ', '')):
+                    # Save previous field if any
+                    if current_field:
+                        extracted[current_field] = current_value.strip()
+                    # Start new field
+                    current_field = req_field
+                    parts = line.split(':', 1)
+                    current_value = parts[1].strip() if len(parts) > 1 else ''
+                    field_found = True
+                    break
+            
+            # If no field found, append to current field only if no colon
+            if not field_found and current_field:
+                if ':' not in line and line.strip():
+                    current_value += ' ' + line.strip()
+        
+        # Save last field
+        if current_field:
+            extracted[current_field] = current_value.strip()
+        
+        # If no recognized fields found, return empty
+        if not extracted:
+            return ''
         
         # Override Date and Time with formatted CSV values
         extracted['Date'] = start_dt.strftime('%m/%d/%Y')
-        extracted['Time'] = start_dt.strftime('%I:%M') + start_dt.strftime('%p') + '-' + end_dt.strftime('%I:%M') + end_dt.strftime('%p')
+        start_hour = int(start_dt.strftime('%I'))
+        end_hour = int(end_dt.strftime('%I'))
+        extracted['Time'] = f"{start_hour}:{start_dt.strftime('%M')}{start_dt.strftime('%p').upper()}-{end_hour}:{end_dt.strftime('%M')}{end_dt.strftime('%p').upper()}"
         
-        print(f"Extracted dict: {extracted}")  # ADD THIS
-        
-        # Build result
+        # Build result with all fields
         result = []
         for field in req_fields:
             value = extracted.get(field, '')
-            if value:
-                result.append(f"{field}: {value}")
+            result.append(f"{field}: {value}")
         
-        print(f"Result: {result}")  # ADD THIS
         return '\n'.join(result)
     except Exception as e:
         print(f"Error: {e}")
@@ -293,3 +278,4 @@ output_path = filedialog.asksaveasfilename(title="Save Word document as", defaul
 if not output_path:
     sys.exit()
 doc.save(output_path)
+root.destroy()
