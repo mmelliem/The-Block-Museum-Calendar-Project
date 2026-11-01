@@ -102,10 +102,11 @@ def reformat_description(row):
                     current_value = parts[1].strip() if len(parts) > 1 else ''
                     field_found = True
                     break
-            
+
             # If no field found, append to current field only if no colon
             if not field_found and current_field:
-                if ':' not in line and line.strip():
+                # The "Notes" field specifically keeps everything though
+                if (current_field == 'Notes' or ':' not in line) and line.strip():
                     current_value += ' ' + line.strip()
         
         # Save last field
@@ -192,16 +193,17 @@ last_date = None
 df['date_str'] = df['start_dt'].dt.strftime('%A, %B, %d')
 df['time_str'] = (df['start_dt']).dt.strftime('%-I:%M %p') + ' - ' + df['end_dt'].dt.strftime('%-I:%M %p')
 
+df['next_date'] = df['start_dt'].dt.date.shift(-1)
 for _, row in df.iterrows():
     current_date = row['start_dt'].date()
 
     if current_date != last_date:
         last_date = current_date
-        # date header (size 14, left indent 0.13")
+        # date header (size 14, left indent 0")
         date_label = row["start_dt"].strftime("%A, %B %d, %Y")
         date_para = doc.add_paragraph()
-        date_para.paragraph_format.left_indent = Inches(0.13)
-        set_spacing(date_para)
+        date_para.paragraph_format.left_indent = Inches(0)
+        date_para.paragraph_format.line_spacing = 1.0
         run = date_para.add_run(date_label)
         run.font.name = "Segoe UI Semibold"
         run.font.size = Pt(14)
@@ -209,14 +211,14 @@ for _, row in df.iterrows():
 
         # horizontal line
         line_para = doc.add_paragraph()
-        line_para.paragraph_format.left_indent = Inches(0.13)
+        line_para.paragraph_format.left_indent = Inches(0)
         line_para.paragraph_format.space_before = Pt(0)
         line_para.paragraph_format.space_after = Pt(0)
         line_para.paragraph_format.line_spacing = Pt(1)
-        set_spacing(line_para)
+        date_para.paragraph_format.line_spacing = 1.0
         add_horizontal_line(line_para)
 
-    # size-9 event line
+    # size-9 gadugi event line
     time_str = f"{fmt_time(row['start_dt'])} - {fmt_time(row['end_dt'])}"
     event_para = doc.add_paragraph()
     event_para.paragraph_format.left_indent = Inches(0.13)
@@ -248,10 +250,16 @@ for _, row in df.iterrows():
             run.italic = True
             run.bold = (part == "Date")
 
+#    p1 = doc.add_paragraph()
+#    p1.add_run().font.size = Pt(9)
+#    p2 = doc.add_paragraph()
+#    p2.add_run().font.size = Pt(9)
+
     p1 = doc.add_paragraph()
     p1.add_run().font.size = Pt(9)
-    p2 = doc.add_paragraph()
-    p2.add_run().font.size = Pt(9)
+    if row['next_date'] != current_date:  # last event of the day gets an extra blank line
+        p2 = doc.add_paragraph()
+        p2.add_run().font.size = Pt(9)
 
 
 section = doc.sections[0]
