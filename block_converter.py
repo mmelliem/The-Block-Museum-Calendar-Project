@@ -39,13 +39,14 @@ df = df.sort_values('start_dt').reset_index(drop=True)
 
 df['Subject'] = df['Subject'].str.replace('\n', ' ').str.strip()
 mask = ~df['Subject'].str.strip().str.upper().str.startswith(('CANCELED', 'AUTOMATED'))
-mask &= ~df['Subject'].str.upper().str.contains('OOO', na=False)
+#mask &= ~df['Subject'].str.upper().str.contains('OOO', na=False)
+mask &= ~df['Subject'].str.contains(r'OOO|(?:\s|^)Out(?:\s|$)', case=False, na=False)
 mask &= ~df['Subject'].str.contains('Required Fields Template', case=False, na=False)
 df = df[mask]
 
 #df['Description'] = df['Description'].str.replace('\r\n', ' ').str.strip()
 df['Description'] = df['Description'].str.strip()
-avoid_strings = ['urldefense', 'zoom.com', 'zoom.us', 'teams.microsoft.com']
+avoid_strings = ['urldefense', 'zoom.com', 'zoom.us', 'teams.microsoft.com', ' Out ', ' out ']
 pattern = '|'.join(avoid_strings)
 df['Description'] = df['Description'].mask(
     df['Description'].str.contains(pattern, case=False, na=False), ''
@@ -81,40 +82,19 @@ def reformat_description(row):
 
         # Replace weird spaces
         desc = desc.replace('\xa0', ' ')
-        
+
         # Extract values only from lines that start with a known field
         extracted = {}
-        current_field = None
-        current_value = ''
-        
-        for line in desc.split('\n'):
-            print(f"debug: processing line: {repr(line)}") # script use only
-            # Check if line starts with a known field
-            field_found = False
-            for req_field in req_fields:
-                if line.strip().lower().replace(' ', '').startswith((req_field.lower() + ':').replace(' ', '')):
-                    # Save previous field if any
-                    if current_field:
-                        extracted[current_field] = current_value.strip()
-                    # Start new field
-                    current_field = req_field
-                    parts = line.split(':', 1)
-                    current_value = parts[1].strip() if len(parts) > 1 else ''
-                    field_found = True
-                    break
+        i = -1  # index of the current field in req_fields
 
-            # If no field found, append to current field only if no colon
-            if not field_found and current_field:
-                # The "Notes" field specifically keeps everything though
-                if (current_field == 'Notes' or ':' not in line) and line.strip():
-                    current_value += ' ' + line.strip()
-        
-        # Save last field
-        if current_field:
-            extracted[current_field] = current_value.strip()
-        
-        # If no recognized fields found, return empty
-        if not extracted:
+        for line in desc.split('\n'):
+            if ':' in line and i + 1 < len(req_fields):
+                i += 1
+                extracted[req_fields[i]] = line.split(':', 1)[1].strip()
+            elif i >= 0 and line.strip():
+                extracted[req_fields[i]] += ' ' + line.strip()
+
+        if len(extracted) < 3: # if field has a stray colon, leave it blank ("Notes" section)
             return ''
         
         # Override Date and Time with formatted CSV values

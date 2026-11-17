@@ -82,7 +82,7 @@
  [],
  False,
  False,
- 1793554031,
+ 1794933815,
  [('runw.exe',
    'C:\\Users\\ars5893\\.calendar_project\\.venv2\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
    'EXECUTABLE')],
